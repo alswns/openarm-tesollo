@@ -1,4 +1,8 @@
 repositories:
+  openarm_ros2:
+    type: git
+    url: https://github.com/enactic/openarm_ros2.git
+    version: 5fd1268ba4b50758c90affbc36f847e8178c141f
   openarm_description:
     type: git
     url: https://github.com/enactic/openarm_description.git

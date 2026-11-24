@@ -4,3 +4,9 @@ install/
 log/
 src/openarm_tesollo_moveit/web/node_modules/
 src/openarm_tesollo_moveit/web/dist/
+__pycache__/
+*.pyc
+src/openarm_description/
+src/dg5f_s_ros2/
+src/zed_description/
+src/openarm_ros2/

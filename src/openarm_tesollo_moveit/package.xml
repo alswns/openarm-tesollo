@@ -9,6 +9,8 @@
   <test_depend>ament_cmake_pytest</test_depend>
   <depend>openarm_description</depend>
   <depend>dg5f_s_description</depend>
+  <exec_depend>openarm_bimanual_moveit_config</exec_depend>
+  <exec_depend>moveit_configs_utils</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>controller_manager</exec_depend>
   <exec_depend>joint_state_broadcaster</exec_depend>

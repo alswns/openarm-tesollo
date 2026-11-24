@@ -18,7 +18,32 @@ class ModelTest(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("practice_launch", share / "launch/practice.launch.py")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        cls.srdf = ET.fromstring(module.semantic_description(cls.urdf))
+        official = Path(get_package_share_directory("openarm_bimanual_moveit_config"))
+        upstream_srdf = (official / "config/openarm_v2.0/openarm_bimanual.srdf").read_text()
+        cls.srdf = ET.fromstring(module.semantic_description(cls.urdf, upstream_srdf))
+        cls.params = module.moveit_parameters(share, "zero")
+
+    def test_upstream_moveit_config_is_adapted_to_tesollo(self):
+        self.assertIsNotNone(self.srdf.find("group_state[@name='hands_up'][@group='left_arm']"))
+        self.assertIsNone(self.srdf.find("group[@name='left_gripper']"))
+        self.assertEqual(self.params["default_planning_pipeline"], "ompl")
+        controllers = self.params["moveit_simple_controller_manager"]
+        self.assertEqual(controllers["controller_names"], ["left_arm_controller", "right_arm_controller"])
+        self.assertEqual(controllers["left_arm_controller"]["joints"][0], "openarm_left_joint1")
+        names = {joint.get("name") for joint in self.robot.findall("joint") if joint.get("type") != "fixed"}
+        limits = self.params["robot_description_planning"]["joint_limits"]
+        self.assertEqual(set(limits), names)
+        self.assertNotIn("openarm_left_finger_joint1", limits)
+        self.assertEqual(self.params["robot_description_kinematics"]["left_arm"]["kinematics_solver"],
+                         "kdl_kinematics_plugin/KDLKinematicsPlugin")
+        for joint in self.robot.findall("joint"):
+            if joint.get("type") != "fixed":
+                self.assertLessEqual(limits[joint.get("name")]["max_velocity"],
+                                     float(joint.find("limit").get("velocity")))
+        links = {link.get("name") for link in self.robot.findall("link")}
+        for pair in self.srdf.findall("disable_collisions"):
+            self.assertIn(pair.get("link1"), links)
+            self.assertIn(pair.get("link2"), links)
 
     def test_graph_and_controller_coverage(self):
         links = [link.get("name") for link in self.robot.findall("link")]
