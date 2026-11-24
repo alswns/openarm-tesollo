@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenArm · Web Pose</title>
+  <style>
+    :root { color-scheme: dark; font: 15px system-ui, sans-serif; background: #0e1420; color: #edf3ff; }
+    body { max-width: 1050px; margin: 32px auto; padding: 0 20px; }
+    h1 { font-size: 30px; margin-bottom: 8px; } p { color: #aebed6; line-height: 1.6; }
+    .warning { background: #332818; color: #ffd49a; padding: 12px 16px; border-radius: 10px; }
+    .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin: 20px 0; }
+    select, button, input[type=number] { font: inherit; color: inherit; background: #1a2537; border: 1px solid #435371; border-radius: 7px; padding: 8px; }
+    button { cursor: pointer; } #stop { background: #88343e; } #reset { background: #24446f; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .card { background: #151f30; border: 1px solid #2c3a51; border-radius: 14px; padding: 20px; }
+    svg { width: 100%; touch-action: none; user-select: none; background: #101a2a; border-radius: 10px; }
+    #targetDot { cursor: grab; } .row { display: grid; grid-template-columns: 70px 1fr 90px; gap: 10px; align-items: center; margin: 15px 0; }
+    input[type=range] { width: 100%; accent-color: #59b8ff; } input[type=number] { width: 72px; }
+    #status { min-height: 45px; } #error { color: #ff9292; min-height: 24px; }
+    .legend { font-size: 13px; color: #afc5df; } code { word-break: break-all; }
+    .camera-card { margin-top: 20px; }
+    #cameraCanvas { width: 100%; aspect-ratio: 16 / 9; display: block; border-radius: 10px; }
+    @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } body { margin-top: 20px; } }
+  </style>
+</head>
+<body>
+  <h1>OpenArm · Web Pose</h1>
+  <p>웹 목표 pose → ROS 2 → MoveIt Servo → RViz · 좌표계 <strong>world</strong>, 손등 중앙 TCP 기준</p>
+  <div class="warning">RViz mock 전용 · 충돌 검사 OFF · 실제 로봇 연결 금지. 이 정지 버튼은 하드웨어 비상정지가 아닙니다.</div>
+  <div class="toolbar">
+    <label>팔 <select id="side"><option value="left">왼팔</option><option value="right">오른팔</option></select></label>
+    <label>평면 <select id="plane"><option value="xy">XY</option><option value="xz">XZ</option><option value="yz">YZ</option></select></label>
+    <label><input id="enabled" type="checkbox" disabled> 실시간 추종</label>
+    <button id="reset">현재 손 위치로 목표 맞추기</button>
+    <button id="stop">정지</button>
+  </div>
+  <div class="grid">
+    <section class="card">
+      <h2>점 드래그</h2>
+      <svg id="pad" viewBox="0 0 360 280" aria-label="목표 위치 평면">
+        <path d="M30 30H330V250H30Z M180 30V250 M30 140H330" fill="none" stroke="#314863"/>
+        <text id="axisH" x="300" y="272" fill="#9cb5d2">X</text>
+        <text id="axisV" x="8" y="28" fill="#9cb5d2">Y</text>
+        <circle id="actualDot" cx="180" cy="140" r="8" fill="#f0ba58"/>
+        <circle id="targetDot" cx="180" cy="140" r="11" fill="#59b8ff" stroke="#ddf2ff" stroke-width="2"/>
+      </svg>
+      <p class="legend">파란 점: 목표 · 노란 점: 실제 손등 TCP · 초기화 위치 주변 각 축 ±1 m (도달 가능 범위가 아님)</p>
+      <div id="status">ROS 상태를 기다리는 중…</div>
+      <div id="error" role="alert"></div>
+      <p>실제 위치 (m)<br><code id="actual">—</code></p>
+    </section>
+    <section class="card">
+      <h2>6D 목표</h2>
+      <div id="controls"></div>
+      <p class="legend">위치: m · 회전: degree (Roll / Pitch / Yaw), 초기화 자세 기준 각 축 ±180°. ROS에는 quaternion으로 전달합니다.</p>
+      <p class="legend">제어 프레임: <code id="tipFrame">—</code> · 로봇 손등의 작은 점: 왼손 파랑 / 오른손 주황</p>
+    </section>
+  </div>
+  <section class="card camera-card">
+    <div class="toolbar">
+      <h2>가상 카메라</h2>
+      <select id="cameraView" aria-label="3D 화면 시점">
+        <option value="camera">ZED Mini 카메라 시점</option>
+        <option value="overview">전체 로봇 — 마우스로 시점 회전</option>
+      </select>
+    </div>
+    <canvas id="cameraCanvas" aria-label="카메라 위치에서 보는 로봇 3D 화면"></canvas>
+    <p id="cameraStatus" class="legend">3D 모델 로딩 중…</p>
+    <p class="legend">ROS 관절 상태를 반영한 웹 렌더링입니다. Gazebo·실제 영상·센서 시뮬레이션은 사용하지 않습니다. 시야각은 표시용 설정입니다.</p>
+  </section>
+<script>
+  const $ = id => document.getElementById(id);
+  const fields = ["x", "y", "z", "roll", "pitch", "yaw"];
+  const labels = ["X (m)", "Y (m)", "Z (m)", "Roll (°)", "Pitch (°)", "Yaw (°)"];
+  const positionRange = 1, rotationRange = 180;
+  let token = "", snapshot = null, target = null, anchor = null, posting = false, dragging = false;
+  for (let i = 0; i < fields.length; i++) {
+    const key = fields[i], row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML = `<label for="${key}">${labels[i]}</label><input id="${key}" type="range"><input id="${key}Number" aria-label="${labels[i]} 수치" type="number">`;
+    $("controls").append(row);
+    for (const suffix of ["", "Number"]) {
+      $(key + suffix).addEventListener("input", event => {
+        if (!target) return;
+        const value = Number(event.target.value);
+        if (!Number.isFinite(value) || value < Number($(key).min) || value > Number($(key).max)) return;
+        target[i] = value; syncControls(); draw();
+      });
+    }
+  }
+  function euler(q) {
+    const [x,y,z,w] = q;
+    return [Math.atan2(2*(w*x+y*z),1-2*(x*x+y*y)),
+      Math.asin(Math.max(-1,Math.min(1,2*(w*y-z*x)))),
+      Math.atan2(2*(w*z+x*y),1-2*(y*y+z*z))].map(v=>v*180/Math.PI);
+  }
+  function quaternion(angles) {
+    const [r,p,y] = angles.map(v=>v*Math.PI/360), cr=Math.cos(r),sr=Math.sin(r),
+      cp=Math.cos(p),sp=Math.sin(p),cy=Math.cos(y),sy=Math.sin(y);
+    return [sr*cp*cy-cr*sp*sy,cr*sp*cy+sr*cp*sy,cr*cp*sy-sr*sp*cy,cr*cp*cy+sr*sp*sy];
+  }
+  function syncControls() {
+    if (!target) return;
+    fields.forEach((key,i)=> { $(key).value=target[i]; $(key+"Number").value=target[i].toFixed(i<3?4:1); });
+  }
+  function initialize() {
+    const arm = snapshot?.arms[$("side").value];
+    if (!arm?.ready || !arm.position) return;
+    target = [...arm.position, ...euler(arm.orientation)]; anchor = [...target];
+    fields.forEach((key,i)=> {
+      for (const suffix of ["","Number"]) {
+        const input=$(key+suffix); input.min=anchor[i]-(i<3?positionRange:rotationRange);
+        input.max=anchor[i]+(i<3?positionRange:rotationRange); input.step=i<3?.001:.5;
+      }
+    });
+    syncControls(); draw();
+  }
+  function projection(values) {
+    const plane=$("plane").value, a="xyz".indexOf(plane[0]), b="xyz".indexOf(plane[1]);
+    return [30+(values[a]-anchor[a]+positionRange)/(2*positionRange)*300,
+      250-(values[b]-anchor[b]+positionRange)/(2*positionRange)*220];
+  }
+  function draw() {
+    if (!target || !anchor) return;
+    $("axisH").textContent=$("plane").value[0].toUpperCase();
+    $("axisV").textContent=$("plane").value[1].toUpperCase();
+    for (const [id, values] of [["targetDot",target],["actualDot",snapshot?.arms[$("side").value]?.position]]) {
+      if (!values) continue;
+      const [x,y]=projection(values); $(id).setAttribute("cx",x); $(id).setAttribute("cy",y);
+    }
+  }
+  function drag(event) {
+    if (!dragging || !target) return;
+    const point=$("pad").createSVGPoint();point.x=event.clientX;point.y=event.clientY;
+    const p=point.matrixTransform($("pad").getScreenCTM().inverse()),plane=$("plane").value;
+    const a="xyz".indexOf(plane[0]),b="xyz".indexOf(plane[1]);
+    target[a]=anchor[a]-positionRange+(Math.max(30,Math.min(330,p.x))-30)/300*(2*positionRange);
+    target[b]=anchor[b]-positionRange+(250-Math.max(30,Math.min(250,p.y)))/220*(2*positionRange);
+    syncControls();draw();
+  }
+  $("targetDot").addEventListener("pointerdown", event=> { dragging=true;$("pad").setPointerCapture(event.pointerId);drag(event); });
+  $("pad").addEventListener("pointermove",drag);
+  for (const event of ["pointerup","pointercancel"]) $("pad").addEventListener(event,()=>dragging=false);
+  $("plane").addEventListener("change",draw);
+  async function stop() {
+    $("enabled").checked=false;
+    if (!token) return;
+    try { const response=await fetch("/api/stop",{method:"POST",headers:{"X-Control-Token":token},keepalive:true});
+      if (!response.ok) throw new Error("정지 요청 실패"); }
+    catch(error) { $("error").textContent=error.message+" · 입력 timeout으로 목표 발행이 중단됩니다."; }
+  }
+  $("stop").addEventListener("click",stop);
+  $("enabled").addEventListener("change",()=> { if (!$("enabled").checked) stop(); });
+  $("side").addEventListener("change",async()=> { await stop();initialize(); });
+  $("reset").addEventListener("click",async()=> { await stop();initialize(); });
+  document.addEventListener("visibilitychange",()=> { if(document.hidden) stop(); });
+  window.addEventListener("pagehide",stop);
+  async function poll() {
+    try {
+      const response=await fetch("/api/state");
+      if (!response.ok) throw new Error("ROS 상태 읽기 실패");
+      snapshot=await response.json();
+      document.dispatchEvent(new CustomEvent("ros-state", {detail: snapshot}));
+      if (token && token!==snapshot.token) { $("enabled").checked=false;target=null; }
+      token=snapshot.token;
+      const arm=snapshot.arms[$("side").value];
+      $("tipFrame").textContent=arm?.tip_frame ?? "—";
+      $("enabled").disabled=!arm?.ready;
+      if (!target && arm?.ready) initialize();
+      $("status").textContent=arm?.ready ? `Servo ${arm.status?.code ?? "—"} · ${arm.status?.message ?? "상태 대기"} · ${snapshot.active?"목표 발행 중":"입력 대기"}`:"Servo 초기화 중…";
+      $("actual").textContent=arm?.position?.map(v=>v.toFixed(4)).join(", ") ?? "—";
+      draw();
+    } catch(error) { $("enabled").checked=false;$("enabled").disabled=true;$("error").textContent=error.message; }
+  }
+  async function publish() {
+    if (posting || !$("enabled").checked || !target || document.hidden) return;
+    posting=true;
+    try {
+      const response=await fetch("/api/target",{method:"POST",headers:{"Content-Type":"application/json","X-Control-Token":token},
+        body:JSON.stringify({side:$("side").value,position:target.slice(0,3),orientation:quaternion(target.slice(3))})});
+      const result=await response.json();
+      if (!response.ok) throw new Error(result.error ?? "목표 발행 실패");
+      $("error").textContent="";
+    } catch(error) { await stop();$("error").textContent=error.message; }
+    finally { posting=false; }
+  }
+  setInterval(poll,100);setInterval(publish,50);poll();
+</script>
+<script type="module" src="/camera-view.js"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "openarm-web-camera",
+  "private": true,
+  "scripts": {
+    "build": "esbuild camera-view.js --bundle --format=esm --outfile=dist/camera-view.js"
+  },
+  "dependencies": {
+    "three": "0.180.0",
+    "urdf-loader": "0.12.6"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12"
+  }
+}

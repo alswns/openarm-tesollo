@@ -1,0 +1,67 @@
+<?xml version="1.0"?>
+<robot name="openarm_tesollo" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="initial_pose" default="zero"/>
+  <xacro:property name="web_initial" value="${xacro.load_yaml('$(find openarm_tesollo_moveit)/config/web_initial.yaml')}"/>
+  <xacro:include filename="$(find openarm_description)/assets/common/robot.xacro"/>
+  <xacro:include filename="$(find openarm_tesollo_moveit)/urdf/dg5f_s_left.xacro"/>
+  <xacro:include filename="$(find openarm_tesollo_moveit)/urdf/dg5f_s_right.xacro"/>
+
+  <xacro:property name="original" value="${xacro.load_yaml('$(find openarm_description)/presets/v2/default_bimanual.yaml')}"/>
+  <xacro:property name="preset" value="${dict(original, robot=dict(original['robot'], components=['body', 'primary_arm', 'secondary_arm', 'body_camera_mount', 'body_camera']))}"/>
+  <xacro:openarm_assemble_robot out_name="components"
+    component_api="${dict(describe='openarm_describe_auto_component', emit='openarm_emit_auto_component')}"
+    robot_preset="${preset}" emit_grasp_frame="false"/>
+
+  <xacro:dg5f_s_left prefix="left_hand_"/>
+  <xacro:dg5f_s_right prefix="right_hand_"/>
+  <joint name="left_hand_mount" type="fixed">
+    <parent link="openarm_left_link7"/><child link="left_hand_link_base"/>
+    <origin xyz="0 0 -0.03" rpy="3.14 0 0"/>
+  </joint>
+  <joint name="right_hand_mount" type="fixed">
+    <parent link="openarm_right_link7"/><child link="right_hand_link_base"/>
+    <origin xyz="0 0 -0.03" rpy="3.14 0 0"/>
+  </joint>
+
+  <xacro:macro name="hand_back_tcp" params="side color">
+    <link name="${side}_hand_back_tcp">
+      <visual>
+        <geometry><sphere radius="0.005"/></geometry>
+        <material name="${side}_tcp_color"><color rgba="${color} 1"/></material>
+      </visual>
+    </link>
+    <joint name="${side}_hand_back_tcp_joint" type="fixed">
+      <parent link="${side}_hand_link_base"/><child link="${side}_hand_back_tcp"/>
+      <!-- Dorsal mesh surface at y=0, z=0.05 m; axes match the hand base. -->
+      <origin xyz="-0.01804 0 0.05" rpy="0 0 0"/>
+    </joint>
+  </xacro:macro>
+  <xacro:hand_back_tcp side="left" color="0.2 0.7 1"/>
+  <xacro:hand_back_tcp side="right" color="1 0.5 0.2"/>
+
+  <xacro:macro name="control_joint" params="name initial:=0.0">
+    <joint name="${name}">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">${initial}</param></state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+  </xacro:macro>
+  <xacro:macro name="arm_joints" params="side i:=1">
+    <xacro:if value="${i &lt;= 7}">
+      <xacro:control_joint name="openarm_${side}_joint${i}"
+        initial="${web_initial[side][i - 1] if '$(arg initial_pose)' == 'web' else 0.0}"/>
+      <xacro:arm_joints side="${side}" i="${i + 1}"/>
+    </xacro:if>
+  </xacro:macro>
+  <xacro:macro name="hand_joints" params="side finger:=1 joint:=1">
+    <xacro:if value="${finger &lt;= 5}">
+      <xacro:control_joint name="${side}_hand_joint_${finger}_${joint}"/>
+      <xacro:hand_joints side="${side}" finger="${finger + 1 if joint == 4 else finger}" joint="${1 if joint == 4 else joint + 1}"/>
+    </xacro:if>
+  </xacro:macro>
+  <ros2_control name="practice_mock" type="system">
+    <hardware><plugin>mock_components/GenericSystem</plugin></hardware>
+    <xacro:arm_joints side="left"/><xacro:arm_joints side="right"/>
+    <xacro:hand_joints side="left"/><xacro:hand_joints side="right"/>
+  </ros2_control>
+</robot>

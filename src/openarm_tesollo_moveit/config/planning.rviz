@@ -1,0 +1,46 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+    - Class: moveit_rviz_plugin/MotionPlanning
+      Name: MotionPlanning
+      Enabled: true
+      Move Group Namespace: ""
+      Robot Description: robot_description
+      Planning Scene Topic: /monitored_planning_scene
+      MoveIt_Allow_Approximate_IK: true
+      MoveIt_Use_Constraint_Aware_IK: true
+      MoveIt_Planning_Time: 5
+      MoveIt_Planning_Attempts: 5
+      Velocity_Scaling_Factor: 0.3
+      Acceleration_Scaling_Factor: 0.3
+      Planning Request:
+        Planning Group: bimanual
+        Query Goal State: true
+        Query Start State: false
+        Interactive Marker Size: 0.22
+      Planned Path:
+        Trajectory Topic: /display_planned_path
+        Robot Alpha: 0.5
+      Scene Robot:
+        Robot Alpha: 1
+  Global Options:
+    Fixed Frame: world
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 2.5
+      Focal Point: {X: 0, Y: 0, Z: 0.5}
+      Pitch: 0.4
+      Yaw: 0.8

@@ -1,0 +1,13 @@
+repositories:
+  openarm_description:
+    type: git
+    url: https://github.com/enactic/openarm_description.git
+    version: c710e19a4789ff04bae6ae9a04b1aa39130b649f
+  dg5f_s_ros2:
+    type: git
+    url: https://github.com/tesollodelto/dg5f_s_ros2.git
+    version: 14cef3b34c71209c123845560c34e4d527286a23
+  zed_description:
+    type: git
+    url: https://github.com/stereolabs/zed-ros2-description.git
+    version: 22468247c1653d08a1e213809f3e9ce76291487d
